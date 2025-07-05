@@ -1,0 +1,113 @@
+services:
+  # Layanan PostgreSQL dengan Citus (Database Utama)
+  library_db:
+    image: citusdata/citus:12.1 # MENGGUNAKAN IMAGE CITUS RESMI
+    ports:
+      - "5435:5432" # Mapping port lokal 5435 ke port kontainer 5432
+    environment:
+      POSTGRES_DB: librarydb
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+    volumes:
+      - library_data:/var/lib/postgresql/data # Volume untuk menyimpan data persisten
+      # Salin skrip inisialisasi ke direktori initdb Docker
+      - ./postgres_custom/postgres-init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d librarydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Layanan MongoDB
+  mongodb_db:
+    image: mongo:latest
+    ports:
+      - "27017:27017" # Mapping port lokal 27017 ke port kontainer 27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Layanan Redis
+  redis_db:
+    image: redis:alpine
+    ports:
+      - "6379:6379" # Mapping port lokal 6379 ke port kontainer 6379
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Layanan Analytics DB (PostgreSQL terpisah untuk data analitik)
+  analytics_db:
+    image: postgres:15-alpine # Menggunakan image postgres standar
+    ports:
+      - "5440:5432" # Mapping port lokal 5440 ke port kontainer 5432
+    environment:
+      POSTGRES_DB: analyticsdb
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+    volumes:
+      - analytics_data:/var/lib/postgresql/data
+      - ./postgres_custom/postgres-init/init_analytics_db.sql:/docker-entrypoint-initdb.d/init_analytics_db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d analyticsdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Layanan Flask Backend API
+  flask_app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000" # Mapping port lokal 5000 ke port kontainer 5000
+    environment:
+      FLASK_APP: app.py
+      FLASK_DEBUG: 1 # Mengaktifkan mode debug Flask
+      # Variabel lingkungan untuk koneksi DB (sesuaikan jika ada perubahan user/password)
+      POSTGRES_HOST: library_db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: librarydb
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      MONGO_HOST: mongodb_db
+      MONGO_PORT: 27017
+      MONGO_USERNAME: admin
+      MONGO_PASSWORD: password
+      REDIS_HOST: redis_db
+      REDIS_PORT: 6379
+      ANALYTICS_HOST: analytics_db
+      ANALYTICS_PORT: 5432
+      ANALYTICS_DB: analyticsdb
+      ANALYTICS_USER: admin
+      ANALYTICS_PASSWORD: password
+    depends_on:
+      library_db:
+        condition: service_healthy
+      mongodb_db:
+        condition: service_healthy
+      redis_db:
+        condition: service_healthy
+      analytics_db:
+        condition: service_healthy
+    volumes:
+      - ./app:/app # Mount folder app lokal ke dalam kontainer Flask untuk hot-reloading
+    # Perintah untuk menjalankan Flask saat kontainer dimulai
+    command: sh -c "python3 -m pip install -r requirements.txt && python3 app.py"
+
+volumes:
+  library_data:
+  mongodb_data:
+  redis_data:
+  analytics_data:

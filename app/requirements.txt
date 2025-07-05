@@ -1,0 +1,5 @@
+Flask==2.3.2
+psycopg2-binary==2.9.5 # Untuk PostgreSQL
+pymongo==4.3.3         # Untuk MongoDB
+redis==4.5.1           # Untuk Redis
+python-dotenv==1.0.0   # Opsional, untuk load environment variables
